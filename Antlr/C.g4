@@ -21,7 +21,7 @@ function_declaration
     : (VOID | type) IDENTIFIER LBRACKET argument_declaration? RBRACKET;
 
 argument_declaration
-    : CONST? type AMPERSAND? IDENTIFIER (COMMA argument_declaration)? ;
+    : CONST? type IDENTIFIER (COMMA argument_declaration)? ;
 
 function_call
     : scanf
@@ -232,9 +232,6 @@ CONST : 'const';
 INCLUDE : '#include';
 STDIO : '<stdio.h>';
 
-IDENTIFIER
-    : ('_' | [a-zA-Z]) ('_' | [0-9] | [a-zA-Z])*;
-
 INTLITERAL
     : DIGIT+;
 
@@ -249,6 +246,9 @@ STRINGLITERAL
 
 BOOLLITERAL
     : 'true' | 'false';
+
+IDENTIFIER
+    : ('_' | [a-zA-Z]) ('_' | [0-9] | [a-zA-Z])*;
 
 SINGLECOMMENT
     : '//' ~[\r\n]* ('\r' | '\n')?;

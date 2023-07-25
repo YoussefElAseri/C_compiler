@@ -1,15 +1,11 @@
-from Nodes import *
-from graphviz import Digraph
-import networkx as nx
-import networkx.drawing.nx_pydot as nxd
 import pydot
-import matplotlib.pyplot as plt
 import graphviz
 import sys
 
+
 class AST:
     root = None
-    symbol_table = None
+    symbolTable = None
     declarations = None
 
     # Define the visualize function

@@ -1,10 +1,6 @@
-import struct
-
-
 class Node:
     children = []
     type = None
-    line_nr: int = -100
 
     def __init__(self):
         self.children = []
@@ -54,7 +50,7 @@ class FuncDeclareNode(Node):
 class FunctionNode(Node):
     type = "function"
     declaration = None  # FuncDeclareNode
-    block = [] #BlockNode
+    block = []  # BlockNode
 
     def generateMips(self, mips, global_var=False):
         a = mips.visitFunction(self)
@@ -63,9 +59,8 @@ class FunctionNode(Node):
 
 class PrintfNode(Node):
     type = "printf"
-    string = None # bv %d;
-    arguments = [] #  : list[ArgumentNode]
-    scope: list[int] = []
+    string = None  # bv %d;
+    arguments = []  # : list[ArgumentNode]
 
     def getASTvalue(self):
         return self.type
@@ -82,11 +77,11 @@ class ScanfNode(Node):
     def generateMips(self, mips, global_var=False):
         return mips.visitScanf(self)
 
+
 class FunctionArgNode(Node):
     type = "function_argument"
     const = None
     varType = None
-    reference = None
     name = None
 
     def getASTvalue(self):
@@ -94,6 +89,7 @@ class FunctionArgNode(Node):
             return "const " + self.varType
         else:
             return self.varType
+
 
 class CallNode(Node):
     type = "call"
@@ -114,6 +110,7 @@ class ArgumentNode(Node):
 
 class BreakNode(Node):
     type = "break"
+    context = ""
 
     def generateLlvm(self, llvm):
         return llvm.visitBreak(self)
@@ -288,7 +285,6 @@ class AssignmentNode(Node):
     type = "assignment"
     left = None
     right = None
-    scope: list[int] = []
 
     def generateLlvm(self, llvm):
         return llvm.visitAssignment(self)
@@ -477,7 +473,7 @@ class FactorNode(Node):
             if self.operation == "*":
                 node.value = str(leftVal * rightVal)
             elif self.operation == "/":
-                if not (leftVal/rightVal).is_integer():
+                if not (leftVal / rightVal).is_integer():
                     node.literalType = "float"
                     node.value = str(leftVal / rightVal)
                 else:
@@ -571,9 +567,9 @@ class SpecialUnaryNode(Node):
             if valType == "char":
                 val = ord(val[1:-1])
             if self.operation == "--":
-                node.value = str(val-1)
+                node.value = str(val - 1)
             elif self.operation == "++":
-                node.value = str(val+1)
+                node.value = str(val + 1)
             return node
         return None
 

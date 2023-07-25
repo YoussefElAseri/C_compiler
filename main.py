@@ -9,7 +9,7 @@ from MIPSVisitor import *
 # Test script that automatically runs our Compiler on specified C files.
 # Just run "python3 main.py"
 
-def main(argv):
+def main():
     vis_tree_flag: bool = True
     vis_st_flag: bool = False
 
@@ -61,4 +61,4 @@ def main(argv):
 
 
 if __name__ == '__main__':
-    main(sys.argv)
+    main()
