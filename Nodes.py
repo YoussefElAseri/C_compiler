@@ -11,14 +11,14 @@ class Node:
     def foldConstant(self):
         return None
 
-    def getASTvalue(self):
-        return self.type
-
     def generateLlvm(self, llvm):
         pass
 
     def generateMips(self, mips, global_var=False):
         pass
+
+    def __repr__(self):
+        return "base class"
 
 
 class RunNode(Node):
@@ -31,10 +31,16 @@ class RunNode(Node):
     def generateMips(self, mips, global_var=False):
         return mips.visitRun(self)
 
+    def __repr__(self):
+        return "run"
+
 
 class IncludeNode(Node):
     type = "include"
     lib = "stdio"
+
+    def __repr__(self):
+        return self.lib
 
 
 class FuncDeclareNode(Node):
@@ -43,8 +49,8 @@ class FuncDeclareNode(Node):
     returnType = ""
     arguments = []
 
-    def getASTvalue(self):
-        return self.name
+    def __repr__(self):
+        return f"{self.returnType} {self.name}"
 
 
 class FunctionNode(Node):
@@ -56,17 +62,20 @@ class FunctionNode(Node):
         a = mips.visitFunction(self)
         return a
 
+    def __repr__(self):
+        return f"function {self.declaration.name}"
+
 
 class PrintfNode(Node):
     type = "printf"
     string = None  # bv %d;
     arguments = []  # : list[ArgumentNode]
 
-    def getASTvalue(self):
-        return self.type
-
     def generateMips(self, mips, global_var=False):
         return mips.visitPrintf(self)
+
+    def __repr__(self):
+        return f"void printf({self.string})"
 
 
 class ScanfNode(Node):
@@ -77,6 +86,9 @@ class ScanfNode(Node):
     def generateMips(self, mips, global_var=False):
         return mips.visitScanf(self)
 
+    def __repr__(self):
+        return "void scanf"
+
 
 class FunctionArgNode(Node):
     type = "function_argument"
@@ -84,11 +96,10 @@ class FunctionArgNode(Node):
     varType = None
     name = None
 
-    def getASTvalue(self):
+    def __repr__(self):
         if self.const:
-            return "const " + self.varType
-        else:
-            return self.varType
+            return f"const {self.varType} {self.name}"
+        return f"arg: {self.varType} {self.name}"
 
 
 class CallNode(Node):
@@ -96,16 +107,19 @@ class CallNode(Node):
     name = ""
     arguments = []
 
-    def getASTvalue(self):
-        return self.name + "()"
-
     def generateMips(self, mips, global_var=False):
         return mips.visitFunction_call(self)
+
+    def __repr__(self):
+        return f"call: {self.name}"
 
 
 class ArgumentNode(Node):
     type = "argument"
     value = None
+
+    def __repr__(self):
+        return f"arg: {self.value}"
 
 
 class BreakNode(Node):
@@ -118,6 +132,9 @@ class BreakNode(Node):
     def generateMips(self, mips, global_var=False):
         return mips.visitBreak(self)
 
+    def __repr__(self):
+        return "break"
+
 
 class ContinueNode(Node):
     type = "continue"
@@ -127,6 +144,9 @@ class ContinueNode(Node):
 
     def generateMips(self, mips, global_var=False):
         return mips.visitContinue(self)
+
+    def __repr__(self):
+        return "continue"
 
 
 class ReturnNode(Node):
@@ -155,25 +175,11 @@ class ReturnNode(Node):
                 call_args.append(ca.value.literalType)
         return call_args
 
-    def getASTvalue(self):
-        if type(self.returnValue) == str:
-            return self.type + " " + self.returnValue
-        elif self.returnValue.type == "term":
-            return self.type + " " + str(self.returnValue.operation)
-        elif self.returnValue.type == "variable":
-            return self.type + " " + str(self.returnValue.name)
-        elif self.returnValue.type == "factor":
-            return self.type + " " + str(self.convert(self.returnValue.left)) \
-                + str(self.returnValue.operation) + str(self.convert(self.returnValue.right))
-        elif self.returnValue.type == "call":
-            return self.type + " " + str(self.returnValue.name) + str(self.getargs(self.returnValue.arguments))
-        elif self.returnValue.type == "literal":
-            return self.type + " " + str(self.returnValue.value)
-        else:
-            print("error147")
-
     def generateMips(self, mips, global_var=False):
         return mips.visitReturn(self)
+
+    def __repr__(self):
+        return f"return"
 
 
 class BlockNode(Node):
@@ -189,13 +195,15 @@ class BlockNode(Node):
     def generateMips(self, mips, global_var=False):
         mips.visitBlock(self)
 
+    def __repr__(self):
+        return f"start scope"
+
 
 class StatementNode(Node):
     # Een statementNode heeft altijd maximum 1 kind
     type = "line"
     statement = None
     comment = None
-    instruction = ""
 
     def generateLlvm(self, llvm):
         return llvm.visitLine(self)
@@ -203,13 +211,16 @@ class StatementNode(Node):
     def generateMips(self, mips, global_var=False):
         if self.comment:
             self.comment.generateMips(mips)
-        if self.statement:
-            mips.text.append("")
-            instr = self.instruction
-            instr = instr.split("\n")
-            for i in instr:
-                mips.text.append("# " + i)
-            self.statement.generateMips(mips)
+        # if self.statement:
+        #     mips.text.append("")
+        #     instr = self.instruction
+        #     instr = instr.split("\n")
+        #     for i in instr:
+        #         mips.text.append("# " + i)
+        self.statement.generateMips(mips)
+
+    def __repr__(self):
+        return "line"
 
 
 class IfNode(Node):
@@ -226,6 +237,9 @@ class IfNode(Node):
     def generateMips(self, mips, global_var=False):
         return mips.visitIf(self)
 
+    def __repr__(self):
+        return "if"
+
 
 class ElseNode(Node):
     type = "else"
@@ -237,6 +251,9 @@ class ElseNode(Node):
 
     def generateMips(self, mips, global_var=False):
         mips.visitBlock(self.block)
+
+    def __repr__(self):
+        return "else"
 
 
 class WhileNode(Node):
@@ -251,13 +268,13 @@ class WhileNode(Node):
     def generateMips(self, mips, global_var=False):
         return mips.visitWhile(self)
 
+    def __repr__(self):
+        return "while"
+
 
 class ExpressionStatementNode(Node):
     type = "statement"
     instruction = ""  # str
-
-    def getASTvalue(self):
-        return self.instruction
 
     def generateLlvm(self, llvm):
         return llvm.visitExpressionStatement(self)
@@ -266,19 +283,22 @@ class ExpressionStatementNode(Node):
         mips.text.append(f"\n ## {self.instruction}")
         return mips.visitExpressionStatement(self)
 
+    def __repr__(self):
+        return f"instruction: {self.instruction}"
+
 
 class CommentNode(Node):
     type = "comment"
     text = ""
-
-    def getASTvalue(self):
-        return self.text
 
     def generateLlvm(self, llvm):
         return llvm.visitComment(self)
 
     def generateMips(self, mips, global_var=False):
         return mips.visitComment(self)
+
+    def __repr__(self):
+        return f"comment: {self.text}"
 
 
 class AssignmentNode(Node):
@@ -292,6 +312,9 @@ class AssignmentNode(Node):
     def generateMips(self, mips, global_var=False):
         return mips.visitAssignment(self, global_var)
 
+    def __repr__(self):
+        return "="
+
 
 class InstantiationNode(Node):
     type = "instantiation"
@@ -299,22 +322,21 @@ class InstantiationNode(Node):
     varType = ""  # type int, float, ...
     name = ""  # variable name x, y , ...
 
-    def getASTvalue(self):
-        return str(self.name)
-
     def generateLlvm(self, llvm):
         return llvm.visitInstantiation(self)
 
     def generateMips(self, mips, global_var=False):
         return mips.visitInstantiation(self, global_var)
 
+    def __repr__(self):
+        if self.const:
+            return f"const {self.varType} {self.name}"
+        return f"{self.varType} {self.name}"
+
 
 class VariableNode(Node):
     type = "variable"
     name = ""
-
-    def getASTvalue(self):
-        return str(self.name)
 
     def generateLlvm(self, llvm):
         return llvm.visitVariable(self)
@@ -322,25 +344,34 @@ class VariableNode(Node):
     def generateMips(self, mips, global_var=False):
         return mips.visitVariable(self)
 
+    def __repr__(self):
+        return self.name
+
 
 class ArrayInstantiationNode(Node):
     type = "arrayInstantiation"
     name = ""
     size = None
     varType = ""
-    const = ""
 
     def generateMips(self, mips, global_var=False):
         return mips.visitArrayInstantiation(self, global_var)
+
+    def __repr__(self):
+        return f"{self.varType} {self.name}[{self.size}]"
 
 
 class ArrayNode(Node):
     type = "array"
     name = ""
     index = None
+    variableType = ""
 
     def generateMips(self, mips, global_var=False):
         return mips.visitArray(self)
+
+    def __repr__(self):
+        return f"{self.name}[{self.index}]"
 
 
 class LogicNode(Node):
@@ -348,6 +379,7 @@ class LogicNode(Node):
     operation = ""
     left = None
     right = None
+    variableType = ""
 
     def foldConstant(self):
         if self.left.type == "literal" and self.right.type == "literal":
@@ -369,12 +401,16 @@ class LogicNode(Node):
     def generateMips(self, mips, global_var=False):
         return mips.visitLogic(self)
 
+    def __repr__(self):
+        return self.operation
+
 
 class CompareNode(Node):
     type = "compare"
     operation = ""
     left = None
     right = None
+    variableType = ""
 
     def foldConstant(self):
         if self.left.type == "literal" and self.right.type == "literal":
@@ -403,15 +439,16 @@ class CompareNode(Node):
     def generateMips(self, mips, global_var=False):
         return mips.visitCompare(self)
 
+    def __repr__(self):
+        return self.operation
+
 
 class TermNode(Node):
     type = "term"
     operation = ""
     left = None
     right = None
-
-    def getASTvalue(self):
-        return str(self.operation)
+    variableType = ""
 
     def foldConstant(self):
         if self.left.type == "literal" and self.right.type == "literal":
@@ -443,15 +480,16 @@ class TermNode(Node):
     def generateMips(self, mips, global_var=False):
         return mips.visitTerm(self)
 
+    def __repr__(self):
+        return self.operation
+
 
 class FactorNode(Node):
     type = "factor"
     operation = ""
     left = None
     right = None
-
-    def getASTvalue(self):
-        return str(self.operation)
+    variableType = ""
 
     def foldConstant(self):
         if self.left.type == "literal" and self.right.type == "literal":
@@ -490,11 +528,15 @@ class FactorNode(Node):
     def generateMips(self, mips, global_var=False):
         return mips.visitFactor(self)
 
+    def __repr__(self):
+        return self.operation
+
 
 class TypeCastNode(Node):
     type = "cast"
     castTo = ""
     variable = None
+    variableType = ""
 
     def generateLlvm(self, llvm):
         return llvm.visitTypeCast(self)
@@ -502,14 +544,15 @@ class TypeCastNode(Node):
     def generateMips(self, mips, global_var=False):
         return mips.visitTypeCast(self)
 
+    def __repr__(self):
+        return '(' + self.castTo + ')'
+
 
 class UnaryNode(Node):
     type = "unary"
     operation = ""
     variable = None
-
-    def getASTvalue(self):
-        return str(self.operation)
+    variableType = ""
 
     def foldConstant(self):
         if self.variable.type == "literal":
@@ -540,18 +583,15 @@ class UnaryNode(Node):
     def generateMips(self, mips, global_var=False):
         return mips.visitUnary(self)
 
+    def __repr__(self):
+        return self.operation
+
 
 class SpecialUnaryNode(Node):
     type = "special_unary"
     operation = ""
     variable = None
-
-    def getASTvalue(self):
-        if self.variable.type == "unary":
-            n = self.variable.variable.name
-        else:
-            n = self.variable.name
-        return n + self.operation
+    variableType = ""
 
     def foldConstant(self):
         if self.variable.type == "literal":
@@ -579,14 +619,14 @@ class SpecialUnaryNode(Node):
     def generateMips(self, mips, global_var=False):
         return mips.visitSpecialUnary(self)
 
+    def __repr__(self):
+        return self.operation
+
 
 class LiteralNode(Node):
     type = "literal"
     literalType = ""
     value = ""
-
-    def getASTvalue(self):
-        return str(self.value)
 
     def convertValType(self):
         val = self.value
@@ -608,3 +648,6 @@ class LiteralNode(Node):
 
     def generateMips(self, mips, global_var=False):
         return mips.visitLiteral(self, global_var)
+
+    def __repr__(self):
+        return self.value

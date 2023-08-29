@@ -17,7 +17,7 @@ class SymbolTable:
         return self.parentScope
 
     def retrieveEntryCurrentScope(self, name):
-        if self.scope[name]:
+        if name in self.scope.keys():
             return self.scope[name], True
         return None, False
 
@@ -56,7 +56,7 @@ class SymbolTable:
         if self.retrieveEntryCurrentScope(name)[1]:
             raise Exception(f"Redeclaration: Symbol '{name}' already declared in current scope!")
 
-        self.scope[name] = {'type': "array", "variableType": variableType}
+        self.scope[name] = {'type': "array", "variableType": variableType, "uses": 0}
 
     def addAssignment(self, name):
         variable = self.retrieveEntry(name)
@@ -83,7 +83,6 @@ class SymbolTable:
             raise Exception(f"{entryType} {name} has not been initialised yet!")
 
 
-
 class Contexts:
     def __init__(self):
         self.loopId = 0
@@ -94,7 +93,7 @@ class Contexts:
         self.functionContexts.append(name)
 
     def peekFunction(self):
-        if len(self.loopContexts) == 0:
+        if len(self.functionContexts) == 0:
             raise Exception("Return statement outside of function")
         return self.functionContexts[-1]
 
@@ -102,7 +101,7 @@ class Contexts:
         self.functionContexts.pop()
 
     def pushLoop(self):
-        self.functionContexts.append(self.loopId)
+        self.loopContexts.append(self.loopId)
         self.loopId += 1
 
     def peekLoop(self):

@@ -9,24 +9,17 @@ from MIPSVisitor import *
 # Test script that automatically runs our Compiler on specified C files.
 # Just run "python3 main.py"
 
+
 def main():
     vis_tree_flag: bool = True
     vis_st_flag: bool = False
-
-    if 'output' not in os.listdir('tests'):  # Als de folder 'output' nog niet bestaat
-        os.mkdir('tests/output')  # Maak een folder genaamd 'output' aan
-    if 'asm_files' not in os.listdir('tests/output'):  # Als de folder 'asm' nog niet bestaat
-        os.mkdir('tests/output/asm_files')  # Maak een folder genaamd 'asm' aan
-    if vis_tree_flag and 'ast_files' not in os.listdir('tests/output'): # Als de folder 'output' nog niet bestaat
-        os.mkdir('tests/output/ast_files') # Maak een folder genaamd 'output' aan
-        os.mkdir('tests/output/ast_files/dot_files') # Maak een folder genaamd 'dotfiles' in 'output' aan
 
     tests_directory_path = "tests/alle_projecten/CorrectCode"
     # tests_directory_path = "tests/abc"
     asm_directory_path = "tests/output/asm_files"
 
     for filename in os.listdir(tests_directory_path):
-        print(f"\nEntering project {filename}. \n")
+        print(f"\nEntering project {filename}. \n", flush=True)
         file_path = os.path.join(tests_directory_path, filename)
 
         if os.path.isfile(file_path):
@@ -38,20 +31,20 @@ def main():
             tree = parser.run()
 
             visitor = AstVisitor()
-            optimizer = AstOptimizer()
+            # optimizer = AstOptimizer()
             # try:
-            print("Entering: " + filename, flush=True)
+            print("Entered successfully", flush=True)
             ast = visitor.visit(tree)
-            ast = optimizer.optimize(ast, visitor.symbol_table)
+            # ast = optimizer.optimize(ast, visitor.symbol_table)
 
             if vis_tree_flag:
-                ast.vis(filename)
-            if vis_st_flag:
-                visitor.symbol_table.st_print(True)
+                ast.visualize(filename)
+            # if vis_st_flag:
+            #     visitor.symbol_table.st_print(True)
 
-            mips = MIPSVisitor()
-            mips.file = asm_directory_path + "/" + filename[0:-2] + ".asm"
-            ast.generateMips(mips)
+            # mips = MIPSVisitor()
+            # mips.file = asm_directory_path + "/" + filename[0:-2] + ".asm"
+            # ast.generateMips(mips)
             #
             # except Exception as error:
             #      print(error, flush=True)

@@ -1,5 +1,6 @@
 from AST import AST
 from Antlr.CVisitor import *
+from Antlr.CParser import *
 from Nodes import *
 from SymbolTable2 import SymbolTable, Contexts
 
@@ -29,6 +30,12 @@ class AstVisitor(CVisitor):
                 node.children.append(self.visitForward_declare(child))
             elif isinstance(child, CParser.CommentContext):
                 node.children.append(self.visitComment(child))
+
+        for entry in self.symbolTable.scope:
+            tempDict = self.symbolTable.scope[entry]
+            if tempDict["type"] == "function" and tempDict["calls"] > 0 and tempDict["definition"] is False:
+                raise Exception("Function was called but not defined!")
+
         ast.root = node
         ast.symbolTable = self.symbolTable
         return ast
@@ -87,11 +94,11 @@ class AstVisitor(CVisitor):
 
     def visitNot_const(self, ctx: CParser.Not_constContext):
         if ctx.EQUALS():
-            return ctx.IDENTIFIER(), self.visitLogicexpression(ctx.logicexpression())
-        return ctx.IDENTIFIER(), None
+            return ctx.IDENTIFIER().getText(), self.visitLogicexpression(ctx.logicexpression())
+        return ctx.IDENTIFIER().getText(), None
 
     def visitConst(self, ctx: CParser.ConstContext):
-        return ctx.IDENTIFIER(), self.visitLogicexpression(ctx.logicexpression())
+        return ctx.IDENTIFIER().getText(), self.visitLogicexpression(ctx.logicexpression())
 
     def visitFunction_declaration(self, ctx: CParser.Function_declarationContext):
         if ctx.exception is not None:
@@ -143,7 +150,7 @@ class AstVisitor(CVisitor):
 
         node = FunctionNode()
         node.declaration = self.visitFunction_declaration(ctx.function_declaration())
-        self.currentTable.retrieveEntry(node.declaration.name)["definition"] = True
+        self.currentTable.retrieveEntry(node.declaration.name)[0]["definition"] = True
 
         # Add function context
         self.contexts.pushFunction(node.declaration.name)
@@ -151,7 +158,7 @@ class AstVisitor(CVisitor):
         # Add all arguments to the symbolTable
         self.currentTable = self.currentTable.openScope()
         for argument in node.declaration.arguments:
-            self.currentTable.addEntry(argument.name, argument.varType, argument.const)
+            self.currentTable.addVariableEntry(argument.name, argument.varType, argument.const)
 
         node.block = self.visitBlock_scope(ctx.block_scope(), True)
 
@@ -251,6 +258,8 @@ class AstVisitor(CVisitor):
 
         self.currentTable.checkEntry(node.name, "Array")
 
+        node.variableType = self.currentTable.retrieveEntry(node.name)[0]["variableType"]
+
         return node
 
     def visitFunction_call(self, ctx: CParser.Function_callContext):
@@ -288,6 +297,8 @@ class AstVisitor(CVisitor):
         if ctx.argument():
             node.arguments = self.visitArgument(ctx.argument())
 
+        node.children = node.arguments
+
         self.currentTable.addCall("scanf")
 
         return node
@@ -296,13 +307,15 @@ class AstVisitor(CVisitor):
         if ctx.exception is not None:
             raise Exception("syntax error")
 
-        self.currentTable.checkEntry("prinf", "Function")
+        self.currentTable.checkEntry("printf", "Function")
 
         node = PrintfNode()
         node.string = ctx.STRINGLITERAL().getText()[1:-1]
 
         if ctx.argument():
             node.arguments = self.visitArgument(ctx.argument())
+
+        node.children = node.arguments
 
         self.currentTable.addCall("printf")
 
@@ -317,6 +330,8 @@ class AstVisitor(CVisitor):
             node.value = self.visitLogicexpression(ctx.logicexpression())
         else:
             node.value = ctx.STRINGLITERAL().getText()
+
+        node.children = [node.value]
 
         if ctx.COMMA():
             allArgs = [node]
@@ -341,6 +356,7 @@ class AstVisitor(CVisitor):
             node = ReturnNode()
             if ctx.logicexpression():
                 node.returnValue = self.visitLogicexpression(ctx.logicexpression())
+                node.children = [node.returnValue]
             else:
                 node.returnValue = "void"
             node.context = self.contexts.peekFunction()
@@ -618,6 +634,7 @@ class AstVisitor(CVisitor):
         if ctx.typecast():
             node = TypeCastNode()
             node.castTo = ctx.typecast().getText()[1:-1]
+            node.variableType = node.castTo
             node.variable = self.visitElement(ctx.element())
             node.children = [node.variable]
         elif ctx.unaryops():
@@ -635,8 +652,10 @@ class AstVisitor(CVisitor):
             node = VariableNode()
             node.name = ctx.IDENTIFIER().getText()
             self.currentTable.checkEntry(node.name, "Variable")
+            self.currentTable.addUse(node.name)
         elif ctx.array():
             node = self.visitArray(ctx.array())
+            self.currentTable.addUse(node.name)
         elif ctx.logicexpression():
             node = self.visitLogicexpression(ctx.logicexpression())
         elif ctx.function_call():
@@ -661,6 +680,7 @@ class AstVisitor(CVisitor):
         if ctx.IDENTIFIER():
             variable = VariableNode()
             variable.name = ctx.IDENTIFIER().getText()
+            self.currentTable.addUse(variable.name)
             self.currentTable.checkEntry(variable.name, "Variable")
         elif ctx.pointer():
             variable = self.visitPointer(ctx.pointer())
