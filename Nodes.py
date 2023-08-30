@@ -1,3 +1,22 @@
+# Checks if operation is valid and returns the highest order
+# Only use for factor, term, logic and comparison
+def getHighestOrder(left, right):
+    for i in [left, right]:
+        if "*" in i or "[]" in i or i == "address":
+            raise Exception(f"Incompatible types {left} and {right}!")
+
+    if left == "float" or right == "float":
+        return "float"
+    elif left == "int" or right == "int":
+        return "int"
+    elif left == "char" or right == "char":
+        return "char"
+    elif left == "bool" or right == "bool":
+        return "bool"
+    else:
+        raise Exception(f"Unknown type {left} or {right} in getHighestOrder!")
+
+
 class Node:
     children = []
     type = None
@@ -8,14 +27,25 @@ class Node:
     def addNodes(self, nodes):
         self.children.append(nodes)
 
-    def foldConstant(self):
-        return None
+    def constantFolding(self):
+        for child in self.children:
+            child.checkOperationsValidity()
+
+    def checkOperationsValidity(self, table):
+        for child in self.children:
+            child.checkOperationsValidity(table)
+
+    def unusedCleanup(self, table):
+        for child in self.children:
+            child.unusedCleanup(table)
 
     def generateLlvm(self, llvm):
         pass
 
     def generateMips(self, mips, global_var=False):
         pass
+
+
 
     def __repr__(self):
         return "base class"
@@ -30,6 +60,19 @@ class RunNode(Node):
 
     def generateMips(self, mips, global_var=False):
         return mips.visitRun(self)
+
+    def checkOperationsValidity(self, table):
+        for child in self.children:
+            child.checkOperationsValidity(table)
+        table.childIndex = 0
+
+    def unusedCleanup(self, table):
+        toDelete = []
+        for child in self.children:
+            if child.unusedCleanup(table):
+                toDelete.append(child)
+        self.children = [i for i in self.children if i not in toDelete]
+        table.childIndex = 0
 
     def __repr__(self):
         return "run"
@@ -55,12 +98,18 @@ class FuncDeclareNode(Node):
 
 class FunctionNode(Node):
     type = "function"
+    name = ""
     declaration = None  # FuncDeclareNode
-    block = []  # BlockNode
+    block = None  # BlockNode
 
     def generateMips(self, mips, global_var=False):
         a = mips.visitFunction(self)
         return a
+
+    def unusedCleanup(self, table):
+        self.block.unusedCleanup(table)
+        if table.retrieveEntry(self.name)[0]["calls"] == 0 and self.name != "main":
+            return True
 
     def __repr__(self):
         return f"function {self.declaration.name}"
@@ -138,6 +187,7 @@ class BreakNode(Node):
 
 class ContinueNode(Node):
     type = "continue"
+    context = ""
 
     def generateLlvm(self, llvm):
         return llvm.visitContinue(self)
@@ -151,7 +201,15 @@ class ContinueNode(Node):
 
 class ReturnNode(Node):
     type = "return"
+    context = ""
+    returnType = ""
     returnValue = None
+
+    def checkOperationsValidity(self, table):
+        rType = self.returnValue.checkOperationsValidity(table)
+        highestType = getHighestOrder(self.returnType, rType)
+        if highestType == rType and self.returnType != rType:
+            print(f"Warning: implicitly converting {rType} to {self.returnType}", flush=True)
 
     def convert(self, node):
         if node.type == "variable":
@@ -195,6 +253,24 @@ class BlockNode(Node):
     def generateMips(self, mips, global_var=False):
         mips.visitBlock(self)
 
+    def unusedCleanup(self, table):
+        toDelete = []
+        newTable = table.childScopes[table.childIndex]
+        table.childIndex += 1
+        for child in self.children:
+            if child.unusedCleanup(newTable):
+                toDelete.append(child)
+        self.children = [i for i in self.children if i not in toDelete]
+        self.block = self.children
+        newTable.childIndex = 0
+
+    def checkOperationsValidity(self, table):
+        newTable = table.childScopes[table.childIndex]
+        table.childIndex += 1
+        for child in self.children:
+            child.checkOperationsValidity(newTable)
+        newTable.childIndex = 0
+
     def __repr__(self):
         return f"start scope"
 
@@ -218,6 +294,9 @@ class StatementNode(Node):
         #     for i in instr:
         #         mips.text.append("# " + i)
         self.statement.generateMips(mips)
+
+    def unusedCleanup(self, table):
+        return self.statement.unusedCleanup(table)
 
     def __repr__(self):
         return "line"
@@ -273,8 +352,10 @@ class WhileNode(Node):
 
 
 class ExpressionStatementNode(Node):
-    type = "statement"
-    instruction = ""  # str
+    type = "ExpressionStatement"
+    instruction = ""
+    # statement is only used to delete in
+    statement = None
 
     def generateLlvm(self, llvm):
         return llvm.visitExpressionStatement(self)
@@ -282,6 +363,20 @@ class ExpressionStatementNode(Node):
     def generateMips(self, mips, global_var=False):
         mips.text.append(f"\n ## {self.instruction}")
         return mips.visitExpressionStatement(self)
+
+    def unusedCleanup(self, table):
+        toDelete = []
+        for child in self.children:
+            delete = child.unusedCleanup(table)
+            if delete and isinstance(child, AssignmentNode):
+                self.children[self.children.index(child)] = child.right
+            elif delete and isinstance(child, InstantiationNode):
+                toDelete.append(child)
+        self.children = [i for i in self.children if i not in toDelete]
+
+        if not self.children:
+            return True
+        return False
 
     def __repr__(self):
         return f"instruction: {self.instruction}"
@@ -306,6 +401,16 @@ class AssignmentNode(Node):
     left = None
     right = None
 
+    def unusedCleanup(self, table):
+        return self.left.unusedCleanup(table)
+
+    def checkOperationsValidity(self, table):
+        lType = self.left.checkOperationsValidity(table)
+        rType = self.right.checkOperationsValidity(table)
+        highestType = getHighestOrder(lType, rType)
+        if highestType == rType and lType != rType:
+            print(f"Warning: implicitly converting {rType} to {lType}", flush=True)
+
     def generateLlvm(self, llvm):
         return llvm.visitAssignment(self)
 
@@ -321,6 +426,13 @@ class InstantiationNode(Node):
     const = False
     varType = ""  # type int, float, ...
     name = ""  # variable name x, y , ...
+
+    def unusedCleanup(self, table):
+        if table.retrieveEntry(self.name)[0]["uses"] == 0:
+            return True
+
+    def checkOperationsValidity(self, table):
+        return self.varType
 
     def generateLlvm(self, llvm):
         return llvm.visitInstantiation(self)
@@ -338,6 +450,13 @@ class VariableNode(Node):
     type = "variable"
     name = ""
 
+    def unusedCleanup(self, table):
+        if table.retrieveEntry(self.name)[0]["uses"] == 0:
+            return True
+
+    def checkOperationsValidity(self, table):
+        return table.retrieveEntry(self.name)[0]["type"]
+
     def generateLlvm(self, llvm):
         return llvm.visitVariable(self)
 
@@ -354,8 +473,15 @@ class ArrayInstantiationNode(Node):
     size = None
     varType = ""
 
+    def checkOperationsValidity(self, table):
+        return f"{self.varType}[]"
+
     def generateMips(self, mips, global_var=False):
         return mips.visitArrayInstantiation(self, global_var)
+
+    def unusedCleanup(self, table):
+        if table.retrieveEntry(self.name)[0]["uses"] == 0:
+            return True
 
     def __repr__(self):
         return f"{self.varType} {self.name}[{self.size}]"
@@ -366,6 +492,9 @@ class ArrayNode(Node):
     name = ""
     index = None
     variableType = ""
+
+    def checkOperationsValidity(self, table):
+        return table.retrieveEntry(self.name)[0]["variableType"] + "[]"
 
     def generateMips(self, mips, global_var=False):
         return mips.visitArray(self)
@@ -380,6 +509,14 @@ class LogicNode(Node):
     left = None
     right = None
     variableType = ""
+
+    def checkOperationsValidity(self, table):
+        lType = self.left.checkOperationsValidity(table)
+        rType = self.right.checkOperationsValidity(table)
+        # run just for the type checking
+        getHighestOrder(lType, rType)
+        return "bool"
+
 
     def foldConstant(self):
         if self.left.type == "literal" and self.right.type == "literal":
@@ -411,6 +548,13 @@ class CompareNode(Node):
     left = None
     right = None
     variableType = ""
+
+    def checkOperationsValidity(self, table):
+        lType = self.left.checkOperationsValidity(table)
+        rType = self.right.checkOperationsValidity(table)
+        # run just for the type checking
+        getHighestOrder(lType, rType)
+        return "bool"
 
     def foldConstant(self):
         if self.left.type == "literal" and self.right.type == "literal":
@@ -449,6 +593,11 @@ class TermNode(Node):
     left = None
     right = None
     variableType = ""
+
+    def checkOperationsValidity(self, table):
+        lType = self.left.checkOperationsValidity(table)
+        rType = self.right.checkOperationsValidity(table)
+        return getHighestOrder(lType, rType)
 
     def foldConstant(self):
         if self.left.type == "literal" and self.right.type == "literal":
@@ -490,6 +639,12 @@ class FactorNode(Node):
     left = None
     right = None
     variableType = ""
+
+    def checkOperationsValidity(self, table):
+        lType = self.left.checkOperationsValidity(table)
+        rType = self.right.checkOperationsValidity(table)
+        return getHighestOrder(lType, rType)
+
 
     def foldConstant(self):
         if self.left.type == "literal" and self.right.type == "literal":
@@ -536,7 +691,12 @@ class TypeCastNode(Node):
     type = "cast"
     castTo = ""
     variable = None
-    variableType = ""
+
+    def checkOperationsValidity(self, table):
+        variableType = self.variable.checkOperationsValidity(table)
+        if variableType == "address" or "*" in variableType or "[]" in variableType:
+            raise Exception(f"Cannot cast {variableType} to {self.castTo}")
+        return self.castTo
 
     def generateLlvm(self, llvm):
         return llvm.visitTypeCast(self)
@@ -553,6 +713,26 @@ class UnaryNode(Node):
     operation = ""
     variable = None
     variableType = ""
+
+    def checkOperationsValidity(self, table):
+        variableType = self.variable.checkOperationsValidity(table)
+
+        if self.operation == "*":
+            if "*" not in variableType:
+                raise Exception(f"Cannot dereference {variableType}")
+            else:
+                return variableType[:-1]
+        elif self.operation == "&":
+            return "address"
+        elif "[]" in variableType:
+            raise Exception(f"Cannot perform {self.operation} operation on {variableType} type!")
+        elif self.operation == "!":
+            return "bool"
+        else:
+            if variableType == "float":
+                return "float"
+            else:
+                return "int"
 
     def foldConstant(self):
         if self.variable.type == "literal":
@@ -591,7 +771,6 @@ class SpecialUnaryNode(Node):
     type = "special_unary"
     operation = ""
     variable = None
-    variableType = ""
 
     def foldConstant(self):
         if self.variable.type == "literal":
@@ -612,6 +791,13 @@ class SpecialUnaryNode(Node):
                 node.value = str(val + 1)
             return node
         return None
+
+    def checkOperationsValidity(self, table):
+        variableType = self.variable.checkOperationsValidity(table)
+        if variableType == "float" or variableType == "int" or variableType == "char" or variableType == "bool":
+            return variableType
+        else:
+            raise Exception(f"Cannot perform {self.operation} operation on {variableType}")
 
     def generateLlvm(self, llvm):
         return llvm.visitSpecialUnary(self)
@@ -642,6 +828,9 @@ class LiteralNode(Node):
             else:
                 val = False
         return val
+
+    def checkOperationsValidity(self, table):
+        return self.literalType
 
     def generateLlvm(self, llvm):
         return llvm.visitLiteral(self)

@@ -2,7 +2,7 @@ from AST import AST
 from Antlr.CVisitor import *
 from Antlr.CParser import *
 from Nodes import *
-from SymbolTable2 import SymbolTable, Contexts
+from SymbolTable import SymbolTable, Contexts
 
 
 class AstVisitor(CVisitor):
@@ -150,10 +150,11 @@ class AstVisitor(CVisitor):
 
         node = FunctionNode()
         node.declaration = self.visitFunction_declaration(ctx.function_declaration())
+        node.name = node.declaration.name
         self.currentTable.retrieveEntry(node.declaration.name)[0]["definition"] = True
 
         # Add function context
-        self.contexts.pushFunction(node.declaration.name)
+        self.contexts.pushFunction(node.declaration.name, node.declaration.returnType)
 
         # Add all arguments to the symbolTable
         self.currentTable = self.currentTable.openScope()
@@ -359,7 +360,8 @@ class AstVisitor(CVisitor):
                 node.children = [node.returnValue]
             else:
                 node.returnValue = "void"
-            node.context = self.contexts.peekFunction()
+            node.context = self.contexts.peekFunction()[0]
+            node.returnType = self.contexts.peekFunction()[1]
 
         return node
 
@@ -634,7 +636,6 @@ class AstVisitor(CVisitor):
         if ctx.typecast():
             node = TypeCastNode()
             node.castTo = ctx.typecast().getText()[1:-1]
-            node.variableType = node.castTo
             node.variable = self.visitElement(ctx.element())
             node.children = [node.variable]
         elif ctx.unaryops():

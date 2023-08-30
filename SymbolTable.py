@@ -1,168 +1,122 @@
-class AstVisitor:
-    pass
-
-
 class SymbolTable:
-    def __init__(self, name: list[int]):
-        """
-        self.subscopes; De scopes die in 'deze' scope zitten.
-        """
-        self.scope1: dict = {}  # 1 scope
-        self.subScopes: list[SymbolTable] = []  # Children
-        self.parentScope: SymbolTable = None
-        self.name: list[int] = name
+    def __init__(self, parent=None):
+        self.scope: dict = {}  # 1 scope
+        self.childScopes: list[SymbolTable] = []  # Children
+        self.parentScope: SymbolTable = parent
+        self.childIndex = 0
 
+    def openScope(self):
+        newScope = SymbolTable()
+        newScope.parentScope = self
+        self.childScopes.append(newScope)
+        return newScope
 
-    def add_symbol(self, name, type, function:bool = False, register = None):
-        # Function=True -> function parameter
-        if name in self.scope1 and not function:
-            if self.get_symbol(name)['type'] == type:
-                # self.st_print()
-                raise Exception(f"Redeclaration: Symbol '{name}' already declared in current scope")
-            else:
-                raise Exception(f"Redefinition: Symbol '{name}' already defined in current scope")
+    def closeScope(self):
+        if not self.parentScope:
+            raise Exception("Current scope doesn't have a parent scope!")
+
+        return self.parentScope
+
+    def retrieveEntryCurrentScope(self, name):
+        if name in self.scope.keys():
+            return self.scope[name], True, self.scope
+        return None, False, None
+
+    def retrieveEntry(self, name):
+        currentScope: SymbolTable = self
+        searchResult = currentScope.retrieveEntryCurrentScope(name)
+        if searchResult[1]:
+            return searchResult
+        while currentScope.parentScope:
+            currentScope = currentScope.parentScope
+            searchResult = currentScope.retrieveEntryCurrentScope(name)
+            if searchResult[1]:
+                return searchResult
+        return None, False, None
+
+    def addVariableEntry(self, name, variableType, const=False):
+        if self.retrieveEntryCurrentScope(name)[1]:
+            raise Exception(f"Redeclaration: Symbol '{name}' already declared in current scope!")
+        self.scope[name] = {'type': variableType, 'assignments': 0, 'uses': 0, 'const': const}
+
+    def addFunctionEntry(self, name, definition, returnType, *args):
+        function = self.retrieveEntry(name)
+        if function[1]:
+            identical = function[0]["return"] == returnType and function[0]["arguments"] == args
+            if not identical:
+                raise Exception(f"function {name} redeclared with different signature!")
+            if function[0]["definition"] and definition:
+                raise Exception(f"function {name} has multiple different definitions!")
+            if function[0]["definition"] or definition:
+                function[0]["definition"] = True
         else:
-            if object:
-                self.scope1[name] = {'type': type, 'value': None, 'assignOnce': True, 'declarations': [], 'reg' : register}
-            else:
-                self.scope1[name] = {'type': type, 'value': None, 'assignOnce': True, 'declarations': []}
+            self.scope[name] = {'type': 'function', 'return': returnType, 'arguments': args, 'definition': definition,
+                                'calls': 0}
 
-    def symbol_used_current(self, name: str):
-        if name not in self.scope1:
-            return False
-        elif self.scope1[name]['value'] is None:
-            return False
-        else:
-            return True
+    def addArrayEntry(self, name, variableType):
+        if self.retrieveEntryCurrentScope(name)[1]:
+            raise Exception(f"Redeclaration: Symbol '{name}' already declared in current scope!")
 
-    def symbol_used_twice(self, name: str):
-        """
-        This function gets called when a symbol has a declaration.
-        The symbol then gets marked with 'assignOnce'.
-        This is relevant for Constant Propagation.
-        :param name: The symbol
-        :return:
-        """
-        self.scope1[name]['assignOnce'] = False
+        self.scope[name] = {'type': "array", "variableType": variableType, "uses": 0}
 
-    def add_symbol_value(self, name, value, line_nr:int = -99):
-        if line_nr == -99:
-            raise Exception("input line nr")
+    def deleteEntry(self, name):
+        scope = self.retrieveEntry(name)[2]
+        if scope is None:
+            raise Exception("Cannot delete since entry doesnt exist")
+        del scope[name]
 
-        if name not in self.scope1:
-            # Als je in een diepere functie bent, wordt dit symbool ineens toegevoegd aan de huidige scope
-            symbol = self.get_symbol(name, "undef")
-            # instantieren in huidige scope
-            self.add_symbol(name, symbol['type'])
+    def addAssignment(self, name):
+        variable = self.retrieveEntry(name)
+        if not variable[1]:
+            raise Exception(f"Variable {name} has not been declared yet!")
+        if variable[0]['const']:
+            raise Exception(f"Const variable reassigned!")
+        variable[0]['assignments'] += 1
 
-        self.scope1[name]['value'] = value
-        # line_nr ook toevoegen
-        self.scope1[name]['declarations'].append([line_nr, value])
+    def addUse(self, name):
+        retrievedVariable = self.retrieveEntry(name)
+        if not retrievedVariable[1]:
+            raise Exception(f"Variable {name} has not been declared yet!")
+        retrievedVariable[0]['uses'] += 1
 
-    def get_symbol(self, name, errortype=None, input_scope: list[int] = None):
-        scope = self
-        if input_scope is not None and len(input_scope) > 0:
-            input_scope = input_scope.copy()
-            input_scope.pop(0)
-            for s in input_scope:
-                if s > len(scope.subScopes):
-                    print("errorSy")
-                scope = scope.subScopes[s]
+    def addCall(self, name):
+        function = self.retrieveEntry(name)
+        if not function[1]:
+            raise Exception(f"Function {name} hasn't been declared yet!")
+        function[0]["calls"] += 1
 
-        while scope is not None:
-            if name in scope.scope1:
-                return scope.scope1[name]
-            scope = scope.parentScope
-
-        if errortype == "undef":
-            raise Exception(f"Syntax Error; Symbol '{name}' is undefined")
-        elif errortype == "unint":
-            raise Exception(f"Syntax Error; Symbol '{name}' is uninitialized")
-        else:
-            print(f"\nGet Symbol Error: {name} , {input_scope} , {errortype}, {self.scope1} ")
-            print(f"{self.parentScope.scope1}")
-            scope.st_print()
-            raise Exception(f"Symbol '{name}' is ?????????")
-
-    def get_most_recent_value(self, name:str, cln: int, cs: list) -> int:
-        # cln = current line number
-        value:int = 0
-        vln: int = 0  # var_st_line_nr: lijn van de declaratie van deze waarde
-        flag: bool = False
-
-        scopes = cs.copy()
-        scopes.pop(0)
-        scope = self
-        while scope is not None:
-
-            symbol = {}
-            if name in scope.scope1.keys():
-                symbol = scope.scope1[name]
-            else:
-                symbol['declarations'] = []
-
-            for decl in symbol['declarations']:
-                vln = decl[0]
-                if vln < cln:
-                    flag = True
-                    value = decl[1]
-                elif vln == cln:
-                    print("error97")
-            if scopes:
-                scope = scope.subScopes[scopes[0]]
-                scopes.pop(0)
-            else:
-                scope = None
-
-        if flag:
-            return value
-        else:
-            return None
-
-    def open_scope(self, vis: AstVisitor):
-        new_name = self.name.copy()
-        new_id = 0 + len(self.subScopes)
-        new_name.append(new_id)
-        new_st = SymbolTable(new_name)
-        new_st.parentScope = self
-
-        self.subScopes.append(new_st)
-        vis.cur_symbol_table = new_st
-
-    def close_scope(self, vis: AstVisitor):
-        # self.st_print()
-        # self.scopes.pop(-1)
-        # self.curScope =- 1
-        vis.cur_symbol_table = self.parentScope
-
-    def open_last_scope(self, vis:AstVisitor):
-
-        vis.cur_symbol_table = self.subScopes[-1]
+    def checkEntry(self, name, entryType):
+        if not self.retrieveEntry(name)[1]:
+            raise Exception(f"{entryType} {name} has not been initialised yet!")
 
 
-    def st_print(self, flag=True):  # flag=True voor de main plaats waar je st_print oproept
-        n = self
-        if flag:
-            print("*****")
+class Contexts:
+    def __init__(self):
+        self.loopId = 0
+        self.functionContexts = []
+        self.loopContexts = []
 
-        print(f"Scope {self.name}:")
+    def pushFunction(self, name, returnType):
+        self.functionContexts.append([name, returnType])
 
-        if len(self.scope1) == 0:
-            print("empty")
-        else:
-            for name, info in self.scope1.items():
-                print(f"{name} => {info}")
+    def peekFunction(self):
+        if len(self.functionContexts) == 0:
+            raise Exception("Return statement outside of function")
+        return self.functionContexts[-1]
 
-        print()
-        ""
-        for x in n.subScopes:
-            print("Subscope: ")
-            x.st_print(False)
-        if flag:
-            print("*___*")
+    def popFunction(self):
+        self.functionContexts.pop()
 
-        """for i in range(0,len(self.scopes)):
-            print(f"Scope {i}:")
-            for name, info in self.scopes[i].items():
-                print(f"{name} => {info}")
-            print()"""
+    def pushLoop(self):
+        self.loopContexts.append(self.loopId)
+        self.loopId += 1
+
+    def peekLoop(self):
+        if len(self.loopContexts) == 0:
+            raise Exception("Break or continue statement outside of loop")
+        return self.loopContexts[-1]
+
+    def popLoop(self):
+        if len(self.loopContexts) == 0:
+            raise Exception("Break or continue statement outside of loop")
+        self.loopContexts.pop()

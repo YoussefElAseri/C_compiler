@@ -19,7 +19,9 @@ def main():
     asm_directory_path = "tests/output/asm_files"
 
     for filename in os.listdir(tests_directory_path):
-        print(f"\nEntering project {filename}. \n", flush=True)
+        if filename != "test.c":
+            continue
+        print(f"\nEntering project {filename} \n", flush=True)
         file_path = os.path.join(tests_directory_path, filename)
 
         if os.path.isfile(file_path):
@@ -35,6 +37,9 @@ def main():
             # try:
             print("Entered successfully", flush=True)
             ast = visitor.visit(tree)
+            ast.checkOperationsValidity()
+            ast.unusedCleanUp()
+
             # ast = optimizer.optimize(ast, visitor.symbol_table)
 
             if vis_tree_flag:

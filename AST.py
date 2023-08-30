@@ -2,12 +2,12 @@ import pydot
 import graphviz
 import sys
 from Nodes import *
+from SymbolTable import SymbolTable
 
 
 class AST:
-    root = None
-    symbolTable = None
-    declarations = None
+    root: Node = None
+    symbolTable: SymbolTable = None
 
     def visualize(self, filename):
         dot = graphviz.Digraph()
@@ -38,8 +38,20 @@ class AST:
         (graph,) = pydot.graph_from_dot_file(dotFileName)
         graph.write_png(f'tests/output/ast_files/{filename}.png')
 
+    # remove all unused variables and functions (Na constant propagation)
+    # bij de cleanup blijven de variables wel in de symbolTable (zou geen probleem mogen zijn?)
+
+    def checkOperationsValidity(self):
+        self.root.checkOperationsValidity(self.symbolTable)
+
+    def constantFolding(self):
+        self.root.constantFolding()
+
+    def unusedCleanUp(self):
+        self.root.unusedCleanup(self.symbolTable)
+
     def generateLLVM(self, llvm):
-        self.root.generateCode(llvm)
+        self.root.generateLlvm(llvm)
 
     def generateMips(self, mips):
         self.root.generateMips(mips)
