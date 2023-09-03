@@ -19,7 +19,7 @@ def getHighestOrder(left, right):
 
 class Node:
     children = []
-    type = None
+    type = "base"
 
     def __init__(self):
         self.children = []
@@ -29,7 +29,10 @@ class Node:
 
     def constantFolding(self):
         for child in self.children:
-            child.checkOperationsValidity()
+            newNode = child.constantFolding()
+            if newNode:
+                self.children[self.children.index(child)] = newNode
+        return False
 
     def checkOperationsValidity(self, table):
         for child in self.children:
@@ -44,8 +47,6 @@ class Node:
 
     def generateMips(self, mips, global_var=False):
         pass
-
-
 
     def __repr__(self):
         return "base class"
@@ -211,6 +212,13 @@ class ReturnNode(Node):
         if highestType == rType and self.returnType != rType:
             print(f"Warning: implicitly converting {rType} to {self.returnType}", flush=True)
 
+    def constantFolding(self):
+        newNode = self.returnValue.constantFolding()
+        if newNode:
+            self.returnValue = newNode
+            self.children[0] = newNode
+        return False
+
     def convert(self, node):
         if node.type == "variable":
             return node.name
@@ -243,15 +251,23 @@ class ReturnNode(Node):
 class BlockNode(Node):
     type = "block"
     # all code inside
-    block = None
+    block = []
     comment = ""
 
-    def generateLlvm(self, llvm):
-        for i in self.children:
-            i.generateLlvm(llvm)
+    def checkOperationsValidity(self, table):
+        newTable = table.childScopes[table.childIndex]
+        table.childIndex += 1
+        for child in self.children:
+            child.checkOperationsValidity(newTable)
+        newTable.childIndex = 0
 
-    def generateMips(self, mips, global_var=False):
-        mips.visitBlock(self)
+    def constantFolding(self):
+        for child in self.children:
+            newNode = child.constantFolding()
+            if newNode:
+                self.children[self.children.index(child)] = newNode
+        self.block = self.children
+        return self
 
     def unusedCleanup(self, table):
         toDelete = []
@@ -264,12 +280,12 @@ class BlockNode(Node):
         self.block = self.children
         newTable.childIndex = 0
 
-    def checkOperationsValidity(self, table):
-        newTable = table.childScopes[table.childIndex]
-        table.childIndex += 1
-        for child in self.children:
-            child.checkOperationsValidity(newTable)
-        newTable.childIndex = 0
+    def generateLlvm(self, llvm):
+        for i in self.children:
+            i.generateLlvm(llvm)
+
+    def generateMips(self, mips, global_var=False):
+        mips.visitBlock(self)
 
     def __repr__(self):
         return f"start scope"
@@ -309,6 +325,38 @@ class IfNode(Node):
     block = None
     elseNode = None
     comment = None
+
+    @staticmethod
+    def checkTrueOrFalse(literal):
+        if literal.convertValType():
+            return True
+        return False
+
+    # Also checks if the condition is always true
+    def constantFolding(self):
+        for child in self.children:
+            newNode = child.constantFolding()
+            if newNode:
+                self.children[self.children.index(child)] = newNode
+        if not isinstance(self.condition, LiteralNode):
+            return False
+
+        condition = self.checkTrueOrFalse(self.condition)
+
+        # If condition is always true delete else and 'change' if into BlockNode
+        # If condition is always false delete if and 'change' else into BlockNode
+        # If condition is always false and else exists, 'change' if into BlockNode
+        if condition:
+            if self.elseNode:
+                self.children.remove(self.elseNode)
+                self.elseNode = None
+            return self.block
+        else:
+            if self.elseNode:
+                self.block = self.elseNode.block
+                return self.block
+            else:
+                return BlockNode()
 
     def generateLlvm(self, llvm):
         return llvm.visitIf(self)
@@ -411,6 +459,13 @@ class AssignmentNode(Node):
         if highestType == rType and lType != rType:
             print(f"Warning: implicitly converting {rType} to {lType}", flush=True)
 
+    def constantFolding(self):
+        newNode = self.right.constantFolding()
+        if newNode:
+            self.right = newNode
+            self.children[1] = newNode
+        return False
+
     def generateLlvm(self, llvm):
         return llvm.visitAssignment(self)
 
@@ -508,7 +563,6 @@ class LogicNode(Node):
     operation = ""
     left = None
     right = None
-    variableType = ""
 
     def checkOperationsValidity(self, table):
         lType = self.left.checkOperationsValidity(table)
@@ -517,20 +571,37 @@ class LogicNode(Node):
         getHighestOrder(lType, rType)
         return "bool"
 
+    def constantFolding(self):
+        lVariable = self.left.constantFolding()
+        rVariable = self.right.constantFolding()
+        if not lVariable and not rVariable:
+            return False
+        elif lVariable and not rVariable:
+            self.children[self.children.index(self.left)] = lVariable
+            self.left = lVariable
+            return self
+        elif not lVariable and rVariable:
+            self.children[self.children.index(self.right)] = rVariable
+            self.right = rVariable
+            return self
 
-    def foldConstant(self):
-        if self.left.type == "literal" and self.right.type == "literal":
-            node = LiteralNode()
-            leftVal = self.left.convertValType()
-            rightVal = self.right.convertValType()
-            node.literalType = "bool"
+        newVariable = LiteralNode()
+        newVariable.literalType = "bool"
+        lValue = lVariable.convertValType()
+        rValue = rVariable.convertValType()
+        newValue = False
 
-            if self.operation == "&&":
-                node.value = str(leftVal and rightVal)
-            elif self.operation == "||":
-                node.value = str(leftVal or rightVal)
-            return node
-        return None
+        if self.operation == "&&":
+            newValue = lValue and rValue
+        elif self.operation == "||":
+            newValue = lValue or rValue
+
+        if newValue:
+            newVariable.value = "true"
+        else:
+            newVariable.value = "false"
+
+        return newVariable
 
     def generateLlvm(self, llvm):
         return llvm.visitLogic(self)
@@ -547,7 +618,6 @@ class CompareNode(Node):
     operation = ""
     left = None
     right = None
-    variableType = ""
 
     def checkOperationsValidity(self, table):
         lType = self.left.checkOperationsValidity(table)
@@ -556,26 +626,39 @@ class CompareNode(Node):
         getHighestOrder(lType, rType)
         return "bool"
 
-    def foldConstant(self):
-        if self.left.type == "literal" and self.right.type == "literal":
-            node = LiteralNode()
-            leftVal = self.left.convertValType()
-            rightVal = self.right.convertValType()
-            node.literalType = "bool"
-            if self.operation == "<":
-                node.value = str(leftVal < rightVal)
-            elif self.operation == "<=":
-                node.value = str(leftVal <= rightVal)
-            elif self.operation == "==":
-                node.value = str(leftVal == rightVal)
-            elif self.operation == "!=":
-                node.value = str(leftVal != rightVal)
-            elif self.operation == ">=":
-                node.value = str(leftVal >= rightVal)
-            elif self.operation == ">":
-                node.value = str(leftVal > rightVal)
-            return node
-        return None
+    def constantFolding(self):
+        lVariable = self.left.constantFolding()
+        rVariable = self.right.constantFolding()
+        if not lVariable and not rVariable:
+            return False
+        elif lVariable and not rVariable:
+            self.children[self.children.index(self.left)] = lVariable
+            self.left = lVariable
+            return self
+        elif not lVariable and rVariable:
+            self.children[self.children.index(self.right)] = rVariable
+            self.right = rVariable
+            return self
+
+        newVariable = LiteralNode()
+        lValue = lVariable.convertValType()
+        rValue = rVariable.convertValType()
+        newVariable.literalType = "bool"
+
+        if self.operation == "<":
+            newVariable.value = str(lValue < rValue)
+        elif self.operation == "<=":
+            newVariable.value = str(lValue <= rValue)
+        elif self.operation == "==":
+            newVariable.value = str(lValue == rValue)
+        elif self.operation == "!=":
+            newVariable.value = str(lValue != rValue)
+        elif self.operation == ">=":
+            newVariable.value = str(lValue >= rValue)
+        elif self.operation == ">":
+            newVariable.value = str(lValue > rValue)
+
+        return newVariable
 
     def generateLlvm(self, llvm):
         return llvm.visitCompare(self)
@@ -599,29 +682,34 @@ class TermNode(Node):
         rType = self.right.checkOperationsValidity(table)
         return getHighestOrder(lType, rType)
 
-    def foldConstant(self):
-        if self.left.type == "literal" and self.right.type == "literal":
-            node = LiteralNode()
-            leftVal = self.left.convertValType()
-            rightVal = self.right.convertValType()
-            Ltype = self.left.literalType
-            Rtype = self.right.literalType
-            if Ltype == "float" or Rtype == "float":
-                node.literalType = "float"
-            else:
-                node.literalType = "int"
-            if Ltype == "char":
-                leftVal = ord(leftVal[1:-1])
-            if Rtype == "char":
-                temp = rightVal[1:-1]
-                rightVal = ord(temp)
+    def constantFolding(self):
+        lVariable = self.left.constantFolding()
+        rVariable = self.right.constantFolding()
+        if not lVariable and not rVariable:
+            return False
+        elif lVariable and not rVariable:
+            self.children[self.children.index(self.left)] = lVariable
+            self.left = lVariable
+            return self
+        elif not lVariable and rVariable:
+            self.children[self.children.index(self.right)] = rVariable
+            self.right = rVariable
+            return self
 
-            if self.operation == "+":
-                node.value = str(leftVal + rightVal)
-            elif self.operation == "-":
-                node.value = str(leftVal - rightVal)
-            return node
-        return None
+        newVariable = LiteralNode()
+        lValue = lVariable.convertValType()
+        rValue = rVariable.convertValType()
+        newType = getHighestOrder(lVariable.literalType, rVariable.literalType)
+        if newType != "int" and newType != "float":
+            newType = "int"
+        newVariable.literalType = newType
+
+        if self.operation == "+":
+            newVariable.value = str(lValue + rValue)
+        elif self.operation == "-":
+            newVariable.value = str(lValue - rValue)
+
+        return newVariable
 
     def generateLlvm(self, llvm):
         return llvm.visitTerm(self)
@@ -645,37 +733,39 @@ class FactorNode(Node):
         rType = self.right.checkOperationsValidity(table)
         return getHighestOrder(lType, rType)
 
+    def constantFolding(self):
+        lVariable = self.left.constantFolding()
+        rVariable = self.right.constantFolding()
+        if not lVariable and not rVariable:
+            return False
+        elif lVariable and not rVariable:
+            self.children[self.children.index(self.left)] = lVariable
+            self.left = lVariable
+            return self
+        elif not lVariable and rVariable:
+            self.children[self.children.index(self.right)] = rVariable
+            self.right = rVariable
+            return self
 
-    def foldConstant(self):
-        if self.left.type == "literal" and self.right.type == "literal":
-            node = LiteralNode()
-            leftVal = self.left.convertValType()
-            rightVal = self.right.convertValType()
-            Ltype = self.left.literalType
-            Rtype = self.right.literalType
-            if Ltype == "float" or Rtype == "float":
-                node.literalType = "float"
-            else:
-                node.literalType = "int"
-            if Ltype == "char":
-                leftVal = ord(leftVal[1:-1])
-            if Rtype == "char":
-                temp = rightVal[1:-1]
-                rightVal = ord(temp)
+        newVariable = LiteralNode()
+        lValue = lVariable.convertValType()
+        rValue = rVariable.convertValType()
+        newType = getHighestOrder(lVariable.literalType, rVariable.literalType)
+        if newType != "int" and newType != "float":
+            newType = "int"
+        newVariable.literalType = newType
 
-            if self.operation == "*":
-                node.value = str(leftVal * rightVal)
-            elif self.operation == "/":
-                if not (leftVal / rightVal).is_integer():
-                    node.literalType = "float"
-                    node.value = str(leftVal / rightVal)
-                else:
-                    node.value = str(int(leftVal / rightVal))
+        if self.operation == "*":
+            newVariable.value = str(lValue * rValue)
+        elif self.operation == "/":
+            newVariable.value = str(lValue / rValue)
+        elif self.operation == "%":
+            newVariable.value = str(lValue % rValue)
 
-            elif self.operation == "%":
-                node.value = str(leftVal % rightVal)
-            return node
-        return None
+        if newType == "int":
+            newVariable.value = str(int(newVariable.value))
+
+        return newVariable
 
     def generateLlvm(self, llvm):
         return llvm.visitFactor(self)
@@ -697,6 +787,27 @@ class TypeCastNode(Node):
         if variableType == "address" or "*" in variableType or "[]" in variableType:
             raise Exception(f"Cannot cast {variableType} to {self.castTo}")
         return self.castTo
+
+    def constantFolding(self):
+        variable = self.variable.constantFolding()
+        if not variable:
+            return False
+        elif variable.literalType == self.castTo:
+            return variable
+
+        value = variable.convertValType()
+        if self.castTo == "float" or self.castTo == "int":
+            variable.value = str(value + 0)
+        elif self.castTo == "char":
+            variable.value = chr(value + 0)
+        elif self.castTo == "bool":
+            if value:
+                variable.value = "true"
+            else:
+                variable.value = "false"
+
+        variable.literalType = self.castTo
+        return variable
 
     def generateLlvm(self, llvm):
         return llvm.visitTypeCast(self)
@@ -734,28 +845,26 @@ class UnaryNode(Node):
             else:
                 return "int"
 
-    def foldConstant(self):
-        if self.variable.type == "literal":
-            node = LiteralNode()
-            val = self.variable.convertValType()
-            valType = self.variable.literalType
-            if valType == "float":
-                node.literalType = "float"
+    def constantFolding(self):
+        variable = self.variable.constantFolding()
+        if not variable:
+            return False
+
+        value = variable.convertValType()
+        variable.literalType = "int"
+        if self.operation == "-":
+            variable.value = str(-value)
+        elif self.operation == "+":
+            variable.value = str(value)
+        elif self.operation == "!":
+            if value:
+                variable.value = "0"
             else:
-                node.literalType = "int"
-            if valType == "char":
-                val = ord(val[1:-1])
-            if self.operation == "-":
-                node.value = str(-val)
-            elif self.operation == "+":
-                node.value = str(val)
-            elif self.operation == "!":
-                node.literalType = "bool"
-                node.value = str(not val)
-            elif self.operation == "&":
-                return None
-            return node
-        return None
+                variable.value = "1"
+        elif self.operation == "&":
+            raise Exception("Cannot dereference literals!")
+
+        return variable
 
     def generateLlvm(self, llvm):
         return llvm.visitUnary(self)
@@ -772,25 +881,28 @@ class SpecialUnaryNode(Node):
     operation = ""
     variable = None
 
-    def foldConstant(self):
-        if self.variable.type == "literal":
-            node = LiteralNode()
-            val = self.variable.convertValType()
-            valType = self.variable.literalType
-            if valType == "bool":
-                raise Exception(f"Invalid operation on boolean type")
-            elif valType == "float":
-                node.literalType = "float"
+    def constantFolding(self):
+        variable = self.variable.constantFolding()
+        if not variable:
+            return False
+
+        value = variable.convertValType()
+        if self.operation == "--":
+            if variable.literalType == "char":
+                variable.value = chr(ord(value[1:-1]) - 1)
+            elif variable.literalType == "bool":
+                variable.value = "false"
             else:
-                node.literalType = "int"
-            if valType == "char":
-                val = ord(val[1:-1])
-            if self.operation == "--":
-                node.value = str(val - 1)
-            elif self.operation == "++":
-                node.value = str(val + 1)
-            return node
-        return None
+                variable.value = str(value - 1)
+        elif self.operation == "++":
+            if variable.literalType == "char":
+                variable.value = chr(ord(value[1:-1]) + 1)
+            elif variable.literalType == "bool":
+                variable.value = "true"
+            else:
+                variable.value = str(value + 1)
+
+        return variable
 
     def checkOperationsValidity(self, table):
         variableType = self.variable.checkOperationsValidity(table)
@@ -813,6 +925,9 @@ class LiteralNode(Node):
     type = "literal"
     literalType = ""
     value = ""
+
+    def constantFolding(self):
+        return self
 
     def convertValType(self):
         val = self.value

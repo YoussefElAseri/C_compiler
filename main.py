@@ -12,7 +12,6 @@ from MIPSVisitor import *
 
 def main():
     vis_tree_flag: bool = True
-    vis_st_flag: bool = False
 
     tests_directory_path = "tests/alle_projecten/CorrectCode"
     # tests_directory_path = "tests/abc"
@@ -38,6 +37,7 @@ def main():
             print("Entered successfully", flush=True)
             ast = visitor.visit(tree)
             ast.checkOperationsValidity()
+            ast.constantFolding()
             ast.unusedCleanUp()
 
             # ast = optimizer.optimize(ast, visitor.symbol_table)
